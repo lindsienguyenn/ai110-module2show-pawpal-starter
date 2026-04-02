@@ -57,13 +57,30 @@ The greedy approach is reasonable here because pet care tasks are not interchang
 
 **a. How you used AI**
 
-- How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
-- What kinds of prompts or questions were most helpful?
+I used VS Code Copilot across every phase of the project:
+
+- **Design brainstorming** — used Copilot Chat with `#codebase` to generate the initial Mermaid UML diagram from a natural language description of the five classes, then again to review the skeleton for missing relationships.
+- **Code generation** — used Agent Mode and Inline Chat to generate class stubs from the UML, then flesh out method bodies incrementally (e.g., `build_plan()`, `detect_conflicts()`).
+- **Test planning** — opened a dedicated chat session to ask for edge case suggestions across five test areas, then implemented each test myself based on that plan.
+- **Documentation** — used the Generate Documentation smart action to add docstrings to all methods at once.
+
+The most effective prompts were specific and structural: providing the class names, method signatures, and asking Copilot to target a named method rather than the whole file. Vague prompts ("improve my scheduler") produced generic suggestions; targeted prompts ("based on `#file:pawpal_system.py`, how should `Scheduler._rank_tasks()` handle equal-priority tasks?") produced actionable ones.
 
 **b. Judgment and verification**
 
-- Describe one moment where you did not accept an AI suggestion as-is.
-- How did you evaluate or verify what the AI suggested?
+The clearest example of rejecting a suggestion was when Copilot proposed rewriting `detect_conflicts()` using `itertools.combinations` to make it more "Pythonic." The suggestion was technically correct and shorter, but it replaced an explicit nested loop with a function that a reader needs to know about to understand. I kept the original version because readability mattered more than brevity here — a future reader (or a student) should be able to trace exactly what pairs of tasks are being compared without needing to know the `itertools` library.
+
+I verified this by reading both versions side by side and asking: "if someone unfamiliar with this code needed to debug a false conflict warning, which version would they understand faster?" The explicit loop won.
+
+I also rejected Copilot's suggestion to move `has_time_for()` from `Owner` to `Scheduler`. I evaluated it by asking whether the method's logic depended on `Owner`'s data alone (yes — just `available_minutes`) or required knowledge of the scheduling process (no). Since it only reads owner state, it belongs on `Owner`. Moving it to `Scheduler` would have made `Scheduler` responsible for both scheduling decisions and owner state — a violation of single responsibility.
+
+**c. Separate chat sessions**
+
+Using separate chat sessions for each phase (design, implementation, testing, documentation) was essential for staying focused. When all phases share one context window, Copilot's suggestions start blending concerns — a testing session that has implementation history may suggest changes to production code rather than just tests. Fresh sessions kept each phase clean. The discipline also mirrors real team workflows where different concerns are handled in separate PRs or tickets.
+
+**d. Being the lead architect**
+
+The key lesson was that AI tools are fast at generating plausible-looking code but have no stake in the overall design coherence. Copilot would happily suggest adding `tasks` to `Owner` AND keeping tasks on `Pet` AND passing tasks into `Scheduler` — all in the same session — without flagging the contradiction. Staying the lead architect meant holding the mental model of "where does data live and who owns it" and using that to accept, reject, or modify every suggestion. The AI accelerated the work; the design judgment had to come from me.
 
 ---
 
@@ -71,13 +88,13 @@ The greedy approach is reasonable here because pet care tasks are not interchang
 
 **a. What you tested**
 
-- What behaviors did you test?
-- Why were these tests important?
+20 pytest tests across five areas: task behavior (`mark_complete`, `add_task`), scoring and priority (`task_score` category boost), scheduling (time budget enforcement, empty plan, all tasks exceeding budget), sorting (`sort_by_time` chronological order, duplicate start times), recurring tasks (daily auto-creates next occurrence due tomorrow, as-needed does not), conflict detection (overlapping windows produce warnings, non-overlapping do not), and filtering (by pet name, nonexistent name, exact case match).
+
+These tests mattered because the scheduler's core promise is "I will pick the right tasks in the right order within your time limit." Without tests for the edge cases — empty task list, all tasks too long, duplicate categories — it's easy to ship a scheduler that works for the happy path but silently fails the moment an owner has an unusual setup.
 
 **b. Confidence**
 
-- How confident are you that your scheduler works correctly?
-- What edge cases would you test next if you had more time?
+4 out of 5. The logic layer (`pawpal_system.py`) is well covered and I'm confident it behaves correctly for all tested cases. The gap is the Streamlit UI — session state behavior, button interactions, and the multi-owner switching are only manually verified. If I had more time I would test: tasks with `due_date` in the past (should still schedule for daily), an owner with zero `available_minutes`, and `detect_conflicts()` with three overlapping tasks (not just two).
 
 ---
 
@@ -85,12 +102,12 @@ The greedy approach is reasonable here because pet care tasks are not interchang
 
 **a. What went well**
 
-- What part of this project are you most satisfied with?
+The part I'm most satisfied with is the data flow architecture: `CareTask` → `Pet` → `Owner` → `Scheduler` → `DailyPlan`. Each class has a clear, single responsibility and the dependencies only flow in one direction. This made it straightforward to test each layer in isolation and to extend the system (e.g., adding multi-owner support to the UI) without touching the backend logic at all.
 
 **b. What you would improve**
 
-- If you had another iteration, what would you improve or redesign?
+If I had another iteration I would add a `start_time` input validation step — right now the app accepts any string in the `start_time` field and would crash on `detect_conflicts()` if the format is wrong (e.g., "8am" instead of "08:00"). I would also redesign the category exclusivity logic in `build_plan()` to be configurable rather than hardcoded, so owners could decide for themselves whether to allow two feeding tasks.
 
 **c. Key takeaway**
 
-- What is one important thing you learned about designing systems or working with AI on this project?
+The most important thing I learned is that AI collaboration requires you to hold the design in your head more explicitly than when coding alone. When working solo, design decisions accumulate naturally in your memory. When working with AI, the tool has no memory of those decisions between sessions — it will suggest things that contradict earlier choices unless you re-establish context every time. Writing the UML first and keeping `reflection.md` updated wasn't just a course requirement; it was the mechanism that kept the AI working toward a coherent system instead of generating plausible-but-inconsistent code.
