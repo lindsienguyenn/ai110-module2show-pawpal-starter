@@ -206,3 +206,53 @@ def test_filter_by_exact_name_match_only():
     # lowercase mismatch should return nothing (exact match required)
     result = owner.get_all_tasks(pet_names=["mochi"])
     assert result == []
+
+
+# --- Required suite: sorting, recurrence, conflict detection ---
+
+def test_sorting_returns_chronological_order():
+    """Tasks added out of order must be returned earliest start_time first."""
+    from datetime import datetime
+    pet = Pet(name="Mochi", species="dog", age=3)
+    pet.add_task(CareTask("Evening walk",   20, "medium", "exercise", start_time="17:00"))
+    pet.add_task(CareTask("Feed breakfast", 10, "high",   "feeding",  start_time="08:00"))
+    pet.add_task(CareTask("Morning walk",   20, "high",   "exercise", start_time="07:00"))
+
+    owner = Owner(name="Jordan", available_minutes=90)
+    owner.add_pet(pet)
+    sorted_tasks = Scheduler(owner).sort_by_time(pet.tasks)
+
+    times = [datetime.strptime(t.start_time, "%H:%M") for t in sorted_tasks]
+    assert times == sorted(times)
+
+
+def test_daily_recurrence_due_date_is_tomorrow():
+    """Completing a daily task must produce a new task due exactly one day later."""
+    from datetime import datetime, timedelta
+    pet = Pet(name="Mochi", species="dog", age=3)
+    task = CareTask("Feed breakfast", 10, "high", "feeding", frequency="daily")
+    pet.add_task(task)
+
+    owner = Owner(name="Jordan", available_minutes=60)
+    owner.add_pet(pet)
+    Scheduler(owner).mark_task_complete(task, pet)
+
+    tomorrow = (datetime.today() + timedelta(days=1)).strftime("%Y-%m-%d")
+    next_task = pet.tasks[-1]
+    assert next_task.due_date == tomorrow
+    assert next_task.completed is False
+
+
+def test_conflict_detection_flags_overlapping_times():
+    """Two tasks whose windows overlap must produce at least one warning message."""
+    pet = Pet(name="Luna", species="cat", age=2)
+    # Playtime at 08:45 for 20 min ends at 09:05 — overlaps with Clean litter at 09:00
+    pet.add_task(CareTask("Playtime",    20, "low",    "enrichment", start_time="08:45"))
+    pet.add_task(CareTask("Clean litter", 10, "medium", "grooming",  start_time="09:00"))
+
+    owner = Owner(name="Jordan", available_minutes=60)
+    owner.add_pet(pet)
+    warnings = Scheduler(owner).detect_conflicts(pet.tasks)
+
+    assert len(warnings) >= 1
+    assert any("Playtime" in w or "Clean litter" in w for w in warnings)
