@@ -4,7 +4,7 @@ PawPal+ is a pet care planning assistant built with Python and Streamlit. It hel
 
 ## 📸 Demo
 
-<a href="/course_images/ai110/pawpal_screenshot.png" target="_blank"><img src='/course_images/ai110/pawpal_screenshot.png' title='PawPal App' width='' alt='PawPal App' class='center-block' /></a>
+<a href="pawpal_screenshot.png" target="_blank"><img src='pawpal_screenshot.png' title='PawPal App' width='100%' alt='PawPal App' /></a>
 
 ## Features
 
