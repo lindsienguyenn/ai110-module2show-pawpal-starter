@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 @dataclass
@@ -9,8 +9,14 @@ class CareTask:
     duration_minutes: int
     priority: str        # "low", "medium", "high"
     category: str        # "feeding", "exercise", "medical", "grooming", "enrichment"
-    frequency: str = "daily"   # "daily", "weekly", "as-needed"
+    frequency: str = "daily"      # "daily", "weekly", "as-needed"
+    start_time: str = "08:00"     # HH:MM format, when the task is scheduled to start
+    due_date: str = ""            # YYYY-MM-DD, set automatically for recurring tasks
     completed: bool = False
+
+    def __post_init__(self):
+        if not self.due_date:
+            self.due_date = datetime.today().strftime("%Y-%m-%d")
 
     def priority_value(self) -> int:
         """Return a numeric value for the priority to enable sorting."""
@@ -26,21 +32,42 @@ class CareTask:
 
     def is_due_today(self) -> bool:
         """Return True if this task should appear in today's schedule based on its frequency."""
+        today = datetime.today().strftime("%Y-%m-%d")
         if self.frequency == "daily":
-            return True
+            return self.due_date <= today
         if self.frequency == "weekly":
-            return datetime.today().weekday() == 0  # Mondays
-        # "as-needed" tasks are never auto-scheduled; owner adds them manually
+            return self.due_date == today
+        # "as-needed" tasks are never auto-scheduled
         return False
+
+    def next_occurrence(self) -> "CareTask":
+        """Return a new CareTask instance due at the next occurrence based on frequency."""
+        if self.frequency == "daily":
+            next_date = (datetime.today() + timedelta(days=1)).strftime("%Y-%m-%d")
+        elif self.frequency == "weekly":
+            next_date = (datetime.today() + timedelta(weeks=1)).strftime("%Y-%m-%d")
+        else:
+            next_date = self.due_date  # as-needed: no change
+
+        return CareTask(
+            title=self.title,
+            duration_minutes=self.duration_minutes,
+            priority=self.priority,
+            category=self.category,
+            frequency=self.frequency,
+            start_time=self.start_time,
+            due_date=next_date,
+            completed=False,
+        )
 
     def mark_complete(self):
         """Mark this task as completed."""
         self.completed = True
 
     def __repr__(self) -> str:
-        """Return a readable string showing priority, title, duration, and status."""
+        """Return a readable string showing priority, title, start time, duration, and status."""
         status = "done" if self.completed else "pending"
-        return f"[{self.priority.upper()}] {self.title} ({self.duration_minutes} min) [{status}]"
+        return f"[{self.priority.upper()}] {self.start_time} {self.title} ({self.duration_minutes} min) [{status}]"
 
 
 @dataclass
@@ -64,17 +91,17 @@ class Pet:
         """Return a species-appropriate list of default care tasks."""
         if self.species == "dog":
             return [
-                CareTask("Morning walk", 20, "high", "exercise", "daily"),
-                CareTask("Feed breakfast", 10, "high", "feeding", "daily"),
-                CareTask("Feed dinner", 10, "high", "feeding", "daily"),
+                CareTask("Morning walk", 20, "high", "exercise", "daily", "07:00"),
+                CareTask("Feed breakfast", 10, "high", "feeding", "daily", "08:00"),
+                CareTask("Feed dinner", 10, "high", "feeding", "daily", "17:00"),
             ]
         if self.species == "cat":
             return [
-                CareTask("Feed breakfast", 5, "high", "feeding", "daily"),
-                CareTask("Feed dinner", 5, "high", "feeding", "daily"),
-                CareTask("Clean litter box", 10, "medium", "grooming", "daily"),
+                CareTask("Feed breakfast", 5, "high", "feeding", "daily", "08:00"),
+                CareTask("Feed dinner", 5, "high", "feeding", "daily", "17:00"),
+                CareTask("Clean litter box", 10, "medium", "grooming", "daily", "09:00"),
             ]
-        return [CareTask("Feed", 10, "high", "feeding", "daily")]
+        return [CareTask("Feed", 10, "high", "feeding", "daily", "08:00")]
 
 
 @dataclass
@@ -113,6 +140,22 @@ class Scheduler:
         """Return all pending tasks that are due today, optionally filtered by pet name."""
         return [t for t in self.owner.get_all_tasks(pet_names) if t.is_due_today()]
 
+    def filter_tasks(self, pet_name: str | None = None, completed: bool | None = None) -> list[CareTask]:
+        """Return tasks filtered by pet name and/or completion status."""
+        results = []
+        for pet in self.owner.pets:
+            if pet_name and pet.name != pet_name:
+                continue
+            for task in pet.tasks:
+                if completed is not None and task.completed != completed:
+                    continue
+                results.append(task)
+        return results
+
+    def sort_by_time(self, tasks: list[CareTask]) -> list[CareTask]:
+        """Sort a list of tasks by their start_time in HH:MM format, earliest first."""
+        return sorted(tasks, key=lambda t: t.start_time)
+
     def _rank_tasks(self, tasks: list[CareTask]) -> list[CareTask]:
         """Sort tasks by composite score (priority + category urgency + brevity), highest first."""
         return sorted(tasks, key=lambda t: (-t.task_score(), t.duration_minutes))
@@ -120,6 +163,34 @@ class Scheduler:
     def _explain(self, task: CareTask, reason: str) -> str:
         """Build a human-readable explanation string for why a task was scheduled or skipped."""
         return f"'{task.title}' ({task.priority} priority, {task.duration_minutes} min): {reason}"
+
+    def mark_task_complete(self, task: CareTask, pet: Pet):
+        """Mark a task complete and, for recurring tasks, add the next occurrence to the pet."""
+        task.mark_complete()
+        if task.frequency in ("daily", "weekly"):
+            pet.add_task(task.next_occurrence())
+
+    def detect_conflicts(self, tasks: list[CareTask]) -> list[str]:
+        """Return a list of warning messages for tasks whose time slots overlap."""
+        warnings = []
+        sorted_tasks = self.sort_by_time(tasks)
+
+        for i in range(len(sorted_tasks)):
+            for j in range(i + 1, len(sorted_tasks)):
+                a = sorted_tasks[i]
+                b = sorted_tasks[j]
+
+                a_start = datetime.strptime(a.start_time, "%H:%M")
+                a_end = a_start + timedelta(minutes=a.duration_minutes)
+                b_start = datetime.strptime(b.start_time, "%H:%M")
+
+                if b_start < a_end:
+                    warnings.append(
+                        f"WARNING: '{a.title}' ({a.start_time}, {a.duration_minutes} min) "
+                        f"overlaps with '{b.title}' ({b.start_time}, {b.duration_minutes} min)"
+                    )
+
+        return warnings
 
     def build_plan(self, pet_names: list[str] | None = None) -> "DailyPlan":
         """Build a daily plan from due tasks, with conflict detection and time-budget enforcement."""
