@@ -1,6 +1,33 @@
 # PawPal+ (Module 2 Project)
 
-You are building **PawPal+**, a Streamlit app that helps a pet owner plan care tasks for their pet.
+PawPal+ is a pet care planning assistant built with Python and Streamlit. It helps pet owners schedule daily care tasks across multiple pets, automatically handles recurring tasks, and warns about scheduling conflicts.
+
+## 📸 Demo
+
+<a href="/course_images/ai110/pawpal_screenshot.png" target="_blank"><img src='/course_images/ai110/pawpal_screenshot.png' title='PawPal App' width='' alt='PawPal App' class='center-block' /></a>
+
+## Features
+
+**Multi-owner & multi-pet support**
+Each owner has their own independent list of pets. Switch between owners using the dropdown — pets and tasks never mix between owners.
+
+**Smart task scheduling**
+Tasks are ranked using a composite score that weighs priority (high/medium/low), category urgency (feeding and medical tasks rank above grooming), and duration. The scheduler greedily fits the highest-scoring tasks into the owner's daily time budget.
+
+**Sort by time**
+`Scheduler.sort_by_time()` orders tasks by `start_time` (HH:MM) so the daily plan reads chronologically from morning to evening.
+
+**Filter by pet or status**
+`Scheduler.filter_tasks()` and `Owner.get_all_tasks(pet_names=[...])` let you query tasks for a specific pet or filter by completion status.
+
+**Recurring task automation**
+Completing a daily or weekly task via `Scheduler.mark_task_complete()` automatically creates the next occurrence using Python's `timedelta` — daily tasks reappear tomorrow, weekly tasks in 7 days. As-needed tasks are never auto-scheduled.
+
+**Conflict detection**
+`Scheduler.detect_conflicts()` scans tasks for overlapping time windows and emits plain-English warnings (rather than crashing). Warnings appear in the UI immediately after adding tasks so owners can fix conflicts before generating a plan.
+
+**Due-date awareness**
+`CareTask.is_due_today()` checks frequency and due date so the scheduler only includes tasks that are actually due — weekly tasks only appear on the correct day.
 
 ## Scenario
 
