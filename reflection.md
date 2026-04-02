@@ -30,6 +30,9 @@ Copilot suggested this method might belong on `Scheduler` since scheduling is it
 **Declined — Adding `tasks: list[CareTask]` to `Owner`:**
 Copilot suggested `Owner` should hold the task list directly. I kept tasks on `Scheduler` because tasks are inputs to the scheduling process, not inherent properties of the owner. This keeps `Owner` as a simple data object.
 
+**Later revision — restructured during full implementation:**
+During the core implementation phase, the design shifted to better match the instruction requirements: `Pet` now owns its `tasks` list directly, and `Owner` manages a `pets: list[Pet]` instead of a single pet. `Scheduler` now takes only `Owner` and retrieves all tasks via `owner.get_all_tasks()`, which loops through each pet's pending tasks. This makes the data flow cleaner: Pet → Owner → Scheduler. `CareTask` also gained a `frequency` attribute ("daily", "weekly", "as-needed") and a `mark_complete()` method to better represent a real task lifecycle.
+
 ---
 
 ## 2. Scheduling Logic and Tradeoffs
