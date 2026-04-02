@@ -1,6 +1,8 @@
 from pawpal_system import CareTask, Pet, Owner, Scheduler
 
 
+# --- Existing tests ---
+
 def test_mark_complete_changes_status():
     task = CareTask("Morning walk", 20, "high", "exercise")
     assert task.completed is False
@@ -75,3 +77,132 @@ def test_schedule_respects_time_budget():
     plan = Scheduler(owner).build_plan()
     assert plan.total_duration_minutes <= owner.available_minutes
     assert len(plan.skipped_tasks) == 1
+
+
+# --- New edge case tests ---
+
+# 1. Scheduling edge cases
+
+def test_scheduler_with_no_tasks_returns_empty_plan():
+    pet = Pet(name="Mochi", species="dog", age=3)
+    owner = Owner(name="Jordan", available_minutes=60)
+    owner.add_pet(pet)
+
+    plan = Scheduler(owner).build_plan()
+    assert plan.scheduled_tasks == []
+    assert plan.skipped_tasks == []
+    assert plan.total_duration_minutes == 0
+
+
+def test_scheduler_all_tasks_exceed_time_budget_skips_all():
+    pet = Pet(name="Mochi", species="dog", age=3)
+    pet.add_task(CareTask("Long walk", 90, "high", "exercise"))
+    pet.add_task(CareTask("Bath", 80, "medium", "grooming"))
+
+    owner = Owner(name="Jordan", available_minutes=30)
+    owner.add_pet(pet)
+
+    plan = Scheduler(owner).build_plan()
+    assert plan.scheduled_tasks == []
+    assert len(plan.skipped_tasks) == 2
+
+
+# 2. Sorting edge cases
+
+def test_sort_two_tasks_same_start_time_no_tasks_lost():
+    pet = Pet(name="Mochi", species="dog", age=3)
+    t1 = CareTask("Feed breakfast", 10, "high", "feeding", start_time="08:00")
+    t2 = CareTask("Brush fur", 15, "low", "grooming", start_time="08:00")
+    pet.add_task(t1)
+    pet.add_task(t2)
+
+    owner = Owner(name="Jordan", available_minutes=60)
+    owner.add_pet(pet)
+    scheduler = Scheduler(owner)
+
+    sorted_tasks = scheduler.sort_by_time(pet.tasks)
+    assert len(sorted_tasks) == 2  # no tasks lost
+
+
+def test_no_overlap_tasks_produce_no_conflict_warnings():
+    pet = Pet(name="Mochi", species="dog", age=3)
+    pet.add_task(CareTask("Morning walk", 20, "high", "exercise", start_time="07:00"))
+    pet.add_task(CareTask("Feed breakfast", 10, "high", "feeding", start_time="08:00"))
+
+    owner = Owner(name="Jordan", available_minutes=60)
+    owner.add_pet(pet)
+
+    warnings = Scheduler(owner).detect_conflicts(pet.tasks)
+    assert warnings == []
+
+
+# 3. Recurring task edge cases
+
+def test_mark_task_complete_as_needed_does_not_create_new_occurrence():
+    pet = Pet(name="Mochi", species="dog", age=3)
+    task = CareTask("Vet visit", 60, "high", "medical", frequency="as-needed")
+    pet.add_task(task)
+
+    owner = Owner(name="Jordan", available_minutes=120)
+    owner.add_pet(pet)
+
+    task_count_before = len(pet.tasks)
+    Scheduler(owner).mark_task_complete(task, pet)
+
+    assert task.completed is True
+    assert len(pet.tasks) == task_count_before  # no new task added
+
+
+def test_mark_task_complete_daily_creates_next_occurrence():
+    pet = Pet(name="Mochi", species="dog", age=3)
+    task = CareTask("Feed breakfast", 10, "high", "feeding", frequency="daily")
+    pet.add_task(task)
+
+    owner = Owner(name="Jordan", available_minutes=60)
+    owner.add_pet(pet)
+
+    Scheduler(owner).mark_task_complete(task, pet)
+
+    assert task.completed is True
+    assert len(pet.tasks) == 2  # original + next occurrence
+    assert pet.tasks[-1].completed is False
+
+
+# 4. Conflict detection edge cases
+
+def test_conflict_detection_same_start_time_raises_warning():
+    pet = Pet(name="Mochi", species="dog", age=3)
+    t1 = CareTask("Morning walk", 30, "high", "exercise", start_time="08:00")
+    t2 = CareTask("Feed breakfast", 10, "high", "feeding", start_time="08:00")
+    pet.add_task(t1)
+    pet.add_task(t2)
+
+    owner = Owner(name="Jordan", available_minutes=60)
+    warnings = Scheduler(owner).detect_conflicts(pet.tasks)
+    assert len(warnings) >= 1
+    assert any("08:00" in w for w in warnings)
+
+
+# 5. Filtering edge cases
+
+def test_filter_by_nonexistent_pet_name_returns_empty_list():
+    pet = Pet(name="Mochi", species="dog", age=3)
+    pet.add_task(CareTask("Walk", 20, "high", "exercise"))
+
+    owner = Owner(name="Jordan", available_minutes=60)
+    owner.add_pet(pet)
+
+    result = owner.get_all_tasks(pet_names=["Nonexistent"])
+    assert result == []
+
+
+def test_filter_by_exact_name_match_only():
+    pet = Pet(name="Mochi", species="dog", age=3)
+    pet.add_task(CareTask("Walk", 20, "high", "exercise"))
+
+    owner = Owner(name="Jordan", available_minutes=60)
+    owner.add_pet(pet)
+
+    # lowercase mismatch should return nothing (exact match required)
+    result = owner.get_all_tasks(pet_names=["mochi"])
+    assert result == []
