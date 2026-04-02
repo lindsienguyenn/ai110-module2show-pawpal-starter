@@ -6,8 +6,8 @@ st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 st.title("🐾 PawPal+")
 
 # --- Session state vault ---
-if "owner" not in st.session_state:
-    st.session_state.owner = None
+if "owners" not in st.session_state:
+    st.session_state.owners = {}   # dict: owner_name -> Owner
 
 # --- Section 1: Owner setup ---
 st.subheader("1. Owner Info")
@@ -19,46 +19,58 @@ with col2:
     available_minutes = st.number_input("Available minutes today", min_value=10, max_value=480, value=60)
 
 if st.button("Save owner"):
-    if st.session_state.owner is None:
-        st.session_state.owner = Owner(name=owner_name, available_minutes=available_minutes)
+    if owner_name not in st.session_state.owners:
+        st.session_state.owners[owner_name] = Owner(name=owner_name, available_minutes=available_minutes)
+        st.success(f"New owner added: {owner_name}")
     else:
-        st.session_state.owner.name = owner_name
-        st.session_state.owner.available_minutes = available_minutes
-    st.success(f"Owner saved: {owner_name} ({available_minutes} min available today)")
+        st.session_state.owners[owner_name].available_minutes = available_minutes
+        st.success(f"Updated {owner_name}'s time budget to {available_minutes} min")
+
+if st.session_state.owners:
+    st.write("Registered owners:")
+    st.table([{"name": o.name, "available minutes": o.available_minutes, "pets": len(o.pets)}
+              for o in st.session_state.owners.values()])
+
+# --- Select active owner ---
+if not st.session_state.owners:
+    st.info("Add at least one owner above to continue.")
+    st.stop()
+
+st.divider()
+active_owner_name = st.selectbox("Working as owner", list(st.session_state.owners.keys()))
+owner = st.session_state.owners[active_owner_name]
 
 # --- Section 2: Add a pet ---
-st.divider()
-st.subheader("2. Add a Pet")
+st.subheader(f"2. Add a Pet for {active_owner_name}")
 
-if st.session_state.owner is None:
-    st.info("Save an owner above first.")
+col1, col2 = st.columns(2)
+with col1:
+    pet_name = st.text_input("Pet name", value="Mochi")
+with col2:
+    species = st.selectbox("Species", ["dog", "cat", "other"])
+
+if st.button("Add pet"):
+    new_pet = Pet(name=pet_name, species=species, age=1)
+    owner.add_pet(new_pet)
+    st.success(f"Added pet: {pet_name} ({species}) for {active_owner_name}")
+
+if owner.pets:
+    st.write(f"{active_owner_name}'s pets:")
+    st.table([{"name": p.name, "species": p.species, "tasks": len(p.tasks)}
+              for p in owner.pets])
 else:
-    col1, col2 = st.columns(2)
-    with col1:
-        pet_name = st.text_input("Pet name", value="Mochi")
-    with col2:
-        species = st.selectbox("Species", ["dog", "cat", "other"])
-
-    if st.button("Add pet"):
-        new_pet = Pet(name=pet_name, species=species, age=1)
-        st.session_state.owner.add_pet(new_pet)
-        st.success(f"Added pet: {pet_name} ({species})")
-
-    if st.session_state.owner.pets:
-        st.write("Pets registered:")
-        st.table([{"name": p.name, "species": p.species, "tasks": len(p.tasks)}
-                  for p in st.session_state.owner.pets])
+    st.info(f"No pets yet for {active_owner_name}.")
 
 # --- Section 3: Add a care task ---
 st.divider()
 st.subheader("3. Add a Care Task")
 
-if not st.session_state.owner or not st.session_state.owner.pets:
+if not owner.pets:
     st.info("Add at least one pet above before adding tasks.")
 else:
-    pet_names = [p.name for p in st.session_state.owner.pets]
+    pet_names = [p.name for p in owner.pets]
     selected_pet_name = st.selectbox("Select pet", pet_names)
-    selected_pet = next(p for p in st.session_state.owner.pets if p.name == selected_pet_name)
+    selected_pet = next(p for p in owner.pets if p.name == selected_pet_name)
 
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
@@ -78,10 +90,9 @@ else:
         selected_pet.add_task(task)
         st.success(f"Added '{task_title}' to {selected_pet_name}")
 
-    # Show tasks sorted by start time
     pending = selected_pet.get_pending_tasks()
     if pending:
-        scheduler_preview = Scheduler(st.session_state.owner)
+        scheduler_preview = Scheduler(owner)
         sorted_pending = scheduler_preview.sort_by_time(pending)
         st.write(f"Tasks for {selected_pet.name} (sorted by start time):")
         st.table([{
@@ -93,12 +104,10 @@ else:
             "frequency": t.frequency,
         } for t in sorted_pending])
 
-        # Show conflict warnings immediately so owner can fix before scheduling
         conflicts = scheduler_preview.detect_conflicts(pending)
         if conflicts:
             st.warning("**Scheduling conflicts detected — review before generating your plan:**")
             for warning in conflicts:
-                # Strip the "WARNING: " prefix for cleaner UI display
                 st.warning(warning.replace("WARNING: ", ""))
     else:
         st.info(f"No tasks for {selected_pet.name} yet.")
@@ -107,30 +116,23 @@ else:
 st.divider()
 st.subheader("4. Generate Today's Schedule")
 
-# Optional filter: let owner schedule only one pet at a time
-if st.session_state.owner and st.session_state.owner.pets:
-    all_pet_names = [p.name for p in st.session_state.owner.pets]
-    filter_options = ["All pets"] + all_pet_names
-    filter_choice = st.selectbox("Schedule tasks for", filter_options)
+filter_options = ["All pets"] + [p.name for p in owner.pets]
+filter_choice = st.selectbox("Schedule tasks for", filter_options)
 
 if st.button("Generate schedule"):
-    if st.session_state.owner is None:
-        st.warning("Please save an owner first.")
-    elif not st.session_state.owner.get_all_tasks():
+    if not owner.get_all_tasks():
         st.warning("Please add at least one task to a pet first.")
     else:
-        scheduler = Scheduler(st.session_state.owner)
+        scheduler = Scheduler(owner)
         pet_filter = None if filter_choice == "All pets" else [filter_choice]
         plan = scheduler.build_plan(pet_names=pet_filter)
         summary = plan.summary()
 
-        # Summary metrics
         col1, col2, col3 = st.columns(3)
         col1.metric("Scheduled", summary["scheduled_count"])
         col2.metric("Skipped", summary["skipped_count"])
-        col3.metric("Time used (min)", f"{summary['total_duration_minutes']} / {st.session_state.owner.available_minutes}")
+        col3.metric("Time used (min)", f"{summary['total_duration_minutes']} / {owner.available_minutes}")
 
-        # Scheduled tasks table (sorted by start time)
         if plan.scheduled_tasks:
             st.success("Scheduled tasks:")
             scheduled_sorted = scheduler.sort_by_time([t for t, _ in plan.scheduled_tasks])
@@ -142,15 +144,13 @@ if st.button("Generate schedule"):
                 "category": t.category,
             } for t in scheduled_sorted])
 
-        # Skipped tasks — show as warnings with reasons
         if plan.skipped_tasks:
             st.warning("Some tasks were skipped:")
             for task, reason in plan.skipped_tasks:
                 st.warning(f"**{task.title}** ({task.priority} priority, {task.duration_minutes} min)  \n"
                            f"Reason: {reason.split(': ', 1)[-1]}")
 
-        # Time budget progress bar
         used = summary["total_duration_minutes"]
-        total = st.session_state.owner.available_minutes
+        total = owner.available_minutes
         st.caption(f"Time budget: {used} of {total} min used")
         st.progress(min(used / total, 1.0))
