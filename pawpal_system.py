@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import datetime
 
 
 @dataclass
@@ -17,6 +18,20 @@ class CareTask:
         if self.priority not in mapping:
             raise ValueError(f"Invalid priority '{self.priority}'. Must be 'low', 'medium', or 'high'.")
         return mapping[self.priority]
+
+    def task_score(self) -> int:
+        """Return a composite score for ranking: weighs priority, urgency category, and brevity."""
+        category_boost = 20 if self.category in ("feeding", "medical") else 0
+        return self.priority_value() * 10 + (100 - self.duration_minutes) + category_boost
+
+    def is_due_today(self) -> bool:
+        """Return True if this task should appear in today's schedule based on its frequency."""
+        if self.frequency == "daily":
+            return True
+        if self.frequency == "weekly":
+            return datetime.today().weekday() == 0  # Mondays
+        # "as-needed" tasks are never auto-scheduled; owner adds them manually
+        return False
 
     def mark_complete(self):
         """Mark this task as completed."""
@@ -47,24 +62,19 @@ class Pet:
 
     def get_default_tasks(self) -> list[CareTask]:
         """Return a species-appropriate list of default care tasks."""
-        defaults = []
         if self.species == "dog":
-            defaults = [
+            return [
                 CareTask("Morning walk", 20, "high", "exercise", "daily"),
                 CareTask("Feed breakfast", 10, "high", "feeding", "daily"),
                 CareTask("Feed dinner", 10, "high", "feeding", "daily"),
             ]
-        elif self.species == "cat":
-            defaults = [
+        if self.species == "cat":
+            return [
                 CareTask("Feed breakfast", 5, "high", "feeding", "daily"),
                 CareTask("Feed dinner", 5, "high", "feeding", "daily"),
                 CareTask("Clean litter box", 10, "medium", "grooming", "daily"),
             ]
-        else:
-            defaults = [
-                CareTask("Feed", 10, "high", "feeding", "daily"),
-            ]
-        return defaults
+        return [CareTask("Feed", 10, "high", "feeding", "daily")]
 
 
 @dataclass
@@ -79,10 +89,12 @@ class Owner:
         """Add a pet to this owner's list of pets."""
         self.pets.append(pet)
 
-    def get_all_tasks(self) -> list[CareTask]:
-        """Collect all pending tasks across all pets."""
+    def get_all_tasks(self, pet_names: list[str] | None = None) -> list[CareTask]:
+        """Collect all pending tasks across pets, optionally filtered by pet name."""
         all_tasks = []
         for pet in self.pets:
+            if pet_names and pet.name not in pet_names:
+                continue
             all_tasks.extend(pet.get_pending_tasks())
         return all_tasks
 
@@ -97,27 +109,39 @@ class Scheduler:
     def __init__(self, owner: Owner):
         self.owner = owner
 
+    def get_due_tasks(self, pet_names: list[str] | None = None) -> list[CareTask]:
+        """Return all pending tasks that are due today, optionally filtered by pet name."""
+        return [t for t in self.owner.get_all_tasks(pet_names) if t.is_due_today()]
+
     def _rank_tasks(self, tasks: list[CareTask]) -> list[CareTask]:
-        """Sort tasks by priority (high first), then by duration (shorter first)."""
-        return sorted(tasks, key=lambda t: (-t.priority_value(), t.duration_minutes))
+        """Sort tasks by composite score (priority + category urgency + brevity), highest first."""
+        return sorted(tasks, key=lambda t: (-t.task_score(), t.duration_minutes))
 
     def _explain(self, task: CareTask, reason: str) -> str:
         """Build a human-readable explanation string for why a task was scheduled or skipped."""
         return f"'{task.title}' ({task.priority} priority, {task.duration_minutes} min): {reason}"
 
-    def build_plan(self) -> "DailyPlan":
-        """Rank all pending tasks and fit them into the owner's time budget, returning a DailyPlan."""
-        all_tasks = self.owner.get_all_tasks()
-        ranked = self._rank_tasks(all_tasks)
+    def build_plan(self, pet_names: list[str] | None = None) -> "DailyPlan":
+        """Build a daily plan from due tasks, with conflict detection and time-budget enforcement."""
+        due_tasks = self.get_due_tasks(pet_names)
+        ranked = self._rank_tasks(due_tasks)
 
         scheduled = []
         skipped = []
         minutes_used = 0
+        scheduled_categories: set[str] = set()
+        exclusive_categories = {"exercise", "feeding"}
 
         for task in ranked:
+            # Conflict detection: block duplicate exclusive-category tasks
+            if task.category in exclusive_categories and task.category in scheduled_categories:
+                skipped.append((task, self._explain(task, f"category '{task.category}' already scheduled")))
+                continue
+
             if self.owner.has_time_for(task, minutes_used):
                 scheduled.append((task, self._explain(task, "fits within available time")))
                 minutes_used += task.duration_minutes
+                scheduled_categories.add(task.category)
             else:
                 skipped.append((task, self._explain(task, "not enough time remaining")))
 
