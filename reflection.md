@@ -39,13 +39,17 @@ During the core implementation phase, the design shifted to better match the ins
 
 **a. Constraints and priorities**
 
-- What constraints does your scheduler consider (for example: time, priority, preferences)?
-- How did you decide which constraints mattered most?
+The scheduler considers three constraints: (1) **time budget** — `Owner.available_minutes` caps the total duration of scheduled tasks; (2) **priority** — tasks are ranked by a composite score that boosts feeding and medical tasks above grooming and enrichment; (3) **category exclusivity** — only one feeding and one exercise task can be scheduled per day to prevent redundant care.
+
+Priority and time budget mattered most because a pet owner's core problem is "I only have 60 minutes — what absolutely must happen?" Category exclusivity came second as a safety check to avoid scheduling both pets' breakfast tasks when only one feeding slot makes sense.
 
 **b. Tradeoffs**
 
-- Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
+The scheduler uses a **greedy, first-fit strategy**: it picks the highest-scoring task that fits in the remaining time budget, then moves on. It never backtracks or tries a different combination to fit more tasks.
+
+For example, if a 50-minute high-priority task is picked first and leaves only 10 minutes, a set of three 9-minute medium-priority tasks that would collectively be more valuable all get skipped. A more optimal algorithm (like a knapsack solver) would find the better combination — but it would be significantly harder to implement, test, and explain to a user.
+
+The greedy approach is reasonable here because pet care tasks are not interchangeable optimisation problems — a high-priority medical task genuinely should go first, even if it crowds out lower-priority tasks. The tradeoff favours predictability and transparency over theoretical optimality.
 
 ---
 
