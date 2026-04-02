@@ -15,6 +15,7 @@ class CareTask:
     completed: bool = False
 
     def __post_init__(self):
+        """Set due_date to today if not provided."""
         if not self.due_date:
             self.due_date = datetime.today().strftime("%Y-%m-%d")
 
