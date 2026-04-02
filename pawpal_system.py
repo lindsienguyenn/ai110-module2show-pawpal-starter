@@ -31,7 +31,10 @@ class CareTask:
     completed: bool = False
 
     def priority_value(self) -> int:
-        pass
+        mapping = {"high": 3, "medium": 2, "low": 1}
+        if self.priority not in mapping:
+            raise ValueError(f"Invalid priority '{self.priority}'. Must be 'low', 'medium', or 'high'.")
+        return mapping[self.priority]
 
     def __repr__(self) -> str:
         pass
@@ -55,8 +58,8 @@ class Scheduler:
 
 @dataclass
 class DailyPlan:
-    scheduled_tasks: list = field(default_factory=list)
-    skipped_tasks: list = field(default_factory=list)
+    scheduled_tasks: list[tuple["CareTask", str]] = field(default_factory=list)
+    skipped_tasks: list[tuple["CareTask", str]] = field(default_factory=list)
     total_duration_minutes: int = 0
 
     def display(self) -> str:
